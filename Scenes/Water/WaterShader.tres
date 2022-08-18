@@ -1,0 +1,166 @@
+[gd_resource type="ShaderMaterial" load_steps=10 format=2]
+
+[sub_resource type="Shader" id=1]
+code = "shader_type spatial;
+
+uniform float wave_speed = 0.2;
+uniform float wave_height = 5.0f;
+uniform vec4 wave_color:hint_color;
+uniform float stylize_amount:hint_range(0.01,7,0.01) = 1.0;
+uniform float color_intesity:hint_range(0.01, 10, 0.01) = 1.0;
+uniform float color_saturation:hint_range(0, 1, 0.01) = 0.0;
+uniform bool enable_normalmap;
+uniform float normalmap_intensity:hint_range(0.01, 10, 0.01) = 1.0;
+uniform vec4 foam_color:hint_color;
+uniform float foam_edge_scale = 0.25;
+uniform float foam_near = 0.1;
+uniform float foam_far = 100;
+
+uniform sampler2D water_layer1;
+uniform sampler2D water_layer2;
+uniform sampler2D normal_map;
+uniform sampler2D foam_map;
+
+float linearize(float depth, float z_near, float z_far) {
+	// Convert the exponential depth to a linear value	
+	depth = 2f * depth - 1f;
+	return z_near * z_far / (z_far + depth * (z_near - z_far));
+}
+
+float foam_edge(sampler2D depth_texture, float time, vec2 screen_uv, float fragcoord_z){
+	float z_depth = linearize(texture(depth_texture, screen_uv).x, foam_near, foam_far);
+	float z_pos = linearize(fragcoord_z, foam_near, foam_far);
+	return z_depth - z_pos;
+}
+float animate_foam(vec2 uv, float time) {
+	vec2 displ = texture(foam_map, uv - time * 0.05 * wave_speed).rg;
+	// convert the displacement to value range -1 and 1
+	displ = ((displ * 2.0) -1.0) * 0.5;
+	return displ.x * 1.5;
+}
+float animate_water(vec2 uv, float time) {
+	vec3 water_tex1 = texture(water_layer1, uv + time * 0.08 * wave_speed).rgb;
+	vec3 water_tex2 = texture(water_layer2, uv - time * 0.02 * wave_speed).rgb;
+		
+	// make values go between -1 and 1
+	return (water_tex1.r + water_tex2.r) -1f;
+}
+
+vec2 animate_normalmap(vec2 uv, float time) {
+	vec2 animated_uv = uv;
+	animated_uv += time * wave_speed * 0.4;
+	return animated_uv;
+}
+float waves(vec2 pos, float time, vec2 uv) {
+	float w = texture(water_layer2, uv + TIME * 0.14 * wave_speed).r;
+	return w;
+}
+
+float stylize_water(float val)
+{
+	val = val * stylize_amount;
+	if(val < -0.0 && val >= -0.2) return -0.01;
+	if(val < -0.2 && val >= -0.35) return -0.07;
+	if(val < -0.35 && val >= -1.0) return -0.12;
+	if(val > 0.0 && val <= 0.15) return 0.2;
+	if(val > 0.15 && val <= 0.35) return 0.3;
+	if(val > 0.35 && val <= 0.5) return 0.5;
+	if(val > 0.5 && val <= 1.0) return 0.8;
+	return 1.0;
+}
+
+void vertex() {
+	VERTEX.y += waves(VERTEX.xz * 1.25, TIME * 1.5, UV) * wave_height;
+	VERTEX.y -= wave_height / 2.0;
+}
+void fragment() {
+
+	float water_anim = animate_water(UV, TIME);
+	float stylized = stylize_water(water_anim);
+	
+	
+	if(enable_normalmap){
+		vec2 animate_uv = animate_normalmap(UV, TIME * 0.6 * wave_speed);
+		NORMALMAP = texture(normal_map, animate_uv * 3.0).rgb * normalmap_intensity;
+	}
+	vec4 screen_tex = texture(SCREEN_TEXTURE, SCREEN_UV);
+	
+	// Foam / Shoreline
+	float foam = foam_edge(DEPTH_TEXTURE, TIME, SCREEN_UV, FRAGCOORD.z);
+	float foam_anim = animate_foam(UV, TIME);
+	foam += foam_anim;
+	vec4 color = mix(foam_color, wave_color, step(foam_edge_scale, foam));
+	
+	ALBEDO = vec3(stylized) + mix(screen_tex.rgb, color.rgb * color_intesity, wave_color.a);
+	ALBEDO -= vec3(color_saturation, color_saturation, color_saturation);
+}
+"
+
+[sub_resource type="OpenSimplexNoise" id=11]
+seed = 4
+octaves = 6
+period = 212.0
+persistence = 0.84
+lacunarity = 2.53
+
+[sub_resource type="NoiseTexture" id=12]
+width = 135
+height = 128
+seamless = true
+as_normalmap = true
+bump_strength = 25.0
+noise = SubResource( 11 )
+
+[sub_resource type="OpenSimplexNoise" id=9]
+seed = 4
+octaves = 6
+period = 212.0
+persistence = 0.84
+lacunarity = 2.53
+
+[sub_resource type="NoiseTexture" id=10]
+width = 128
+height = 128
+seamless = true
+as_normalmap = true
+bump_strength = 12.7
+noise = SubResource( 9 )
+
+[sub_resource type="OpenSimplexNoise" id=4]
+seed = 5
+octaves = 4
+persistence = 0.4
+lacunarity = 2.88
+
+[sub_resource type="NoiseTexture" id=5]
+seamless = true
+noise = SubResource( 4 )
+
+[sub_resource type="OpenSimplexNoise" id=6]
+seed = 2425
+octaves = 2
+
+[sub_resource type="NoiseTexture" id=7]
+width = 255
+height = 256
+seamless = true
+noise = SubResource( 6 )
+
+[resource]
+shader = SubResource( 1 )
+shader_param/wave_speed = 0.5
+shader_param/wave_height = 5.0
+shader_param/wave_color = Color( 0.407843, 0.443137, 0.737255, 0.45098 )
+shader_param/stylize_amount = 2.22
+shader_param/color_intesity = 3.16
+shader_param/color_saturation = 0.0
+shader_param/enable_normalmap = true
+shader_param/normalmap_intensity = 0.01
+shader_param/foam_color = Color( 1, 1, 1, 1 )
+shader_param/foam_edge_scale = 0.6
+shader_param/foam_near = 0.1
+shader_param/foam_far = 500.0
+shader_param/water_layer1 = SubResource( 5 )
+shader_param/water_layer2 = SubResource( 7 )
+shader_param/normal_map = SubResource( 10 )
+shader_param/foam_map = SubResource( 12 )
